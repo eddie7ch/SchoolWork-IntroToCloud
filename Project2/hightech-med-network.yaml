@@ -1,0 +1,210 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Project 2 - HighTech Medical Network Infrastructure
+  Provisions VPC, Subnets, Internet Gateway, NAT Gateway,
+  Route Tables, and Security Group for the HighTechMed environment.
+
+# ─────────────────────────────────────────────
+#  Resources
+# ─────────────────────────────────────────────
+Resources:
+
+  # ── VPC ──────────────────────────────────────
+  HighTechMedVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "100.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: HighTechMed
+
+  # ── Public Subnets (/24 = 251 usable IPs each) ──
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref HighTechMedVPC
+      CidrBlock: "100.0.1.0/24"
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref HighTechMedVPC
+      CidrBlock: "100.0.2.0/24"
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-2
+
+  # ── Private Subnets (/24 = 251 usable IPs each) ──
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref HighTechMedVPC
+      CidrBlock: "100.0.3.0/24"
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref HighTechMedVPC
+      CidrBlock: "100.0.4.0/24"
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: private-subnet-2
+
+  # ── Internet Gateway ──────────────────────────
+  HighTechMedIGw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: HighTechMedIGw
+
+  AttachIGw:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref HighTechMedVPC
+      InternetGatewayId: !Ref HighTechMedIGw
+
+  # ── Elastic IP for NAT Gateway ────────────────
+  NatEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachIGw
+    Properties:
+      Domain: vpc
+
+  # ── NAT Gateway (placed in PublicSubnet1) ─────
+  HighTechMedNatGw:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: HighTechMedNatGw
+
+  # ── Public Route Table ────────────────────────
+  HighTechMedPublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref HighTechMedVPC
+      Tags:
+        - Key: Name
+          Value: HighTechMedPublic
+
+  # Route: public subnets → Internet Gateway
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGw
+    Properties:
+      RouteTableId: !Ref HighTechMedPublicRT
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref HighTechMedIGw
+
+  PublicSubnet1RTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref HighTechMedPublicRT
+
+  PublicSubnet2RTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref HighTechMedPublicRT
+
+  # ── Private Route Table ───────────────────────
+  HighTechMedPrivateRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref HighTechMedVPC
+      Tags:
+        - Key: Name
+          Value: HighTechMedPrivate
+
+  # Route: private subnets → NAT Gateway
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref HighTechMedPrivateRT
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref HighTechMedNatGw
+
+  PrivateSubnet1RTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref HighTechMedPrivateRT
+
+  PrivateSubnet2RTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref HighTechMedPrivateRT
+
+  # ── Security Group ────────────────────────────
+  HighTechMedLoadBalancerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: HighTechMedLoadBalancer
+      GroupDescription: "Allows HTTP traffic on port 80 from the internet"
+      VpcId: !Ref HighTechMedVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+          Description: "Allow HTTP from internet"
+      Tags:
+        - Key: Name
+          Value: HighTechMedLoadBalancer
+
+# ─────────────────────────────────────────────
+#  Outputs
+# ─────────────────────────────────────────────
+Outputs:
+  VpcId:
+    Description: HighTechMed VPC ID
+    Value: !Ref HighTechMedVPC
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+
+  PrivateSubnet1Id:
+    Description: Private Subnet 1 ID
+    Value: !Ref PrivateSubnet1
+
+  PrivateSubnet2Id:
+    Description: Private Subnet 2 ID
+    Value: !Ref PrivateSubnet2
+
+  InternetGatewayId:
+    Description: Internet Gateway ID
+    Value: !Ref HighTechMedIGw
+
+  NatGatewayId:
+    Description: NAT Gateway ID
+    Value: !Ref HighTechMedNatGw
+
+  LoadBalancerSecurityGroupId:
+    Description: HighTechMedLoadBalancer Security Group ID
+    Value: !Ref HighTechMedLoadBalancerSG
