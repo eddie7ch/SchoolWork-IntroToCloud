@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Project 1 - HighTech Medical IAM Configuration
+  Provisions IAM Group, User, Managed Policy, and Role for
+  permission management assessment (Module 1).
+
+# ─────────────────────────────────────────────
+#  Parameters
+# ─────────────────────────────────────────────
+Parameters:
+  PeterInitialPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: >
+      Temporary console password for IAM User "Peter".
+      The user will be required to reset it on first login.
+    Default: "ChangeMe123!"
+
+# ─────────────────────────────────────────────
+#  Resources
+# ─────────────────────────────────────────────
+Resources:
+
+  # ── IAM Group: EC2Admins ─────────────────────
+  EC2AdminsGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: EC2Admins
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+
+  # ── IAM User: Peter ──────────────────────────
+  PeterUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: Peter
+      # Assign Peter directly into the EC2Admins group at creation
+      Groups:
+        - !Ref EC2AdminsGroup
+      # Console login profile – password must be changed on first sign-in
+      LoginProfile:
+        Password: !Ref PeterInitialPassword
+        PasswordResetRequired: true
+
+  # ── Access Keys for Peter ────────────────────
+  # The SecretAccessKey is surfaced in Outputs (shown once – store securely).
+  PeterAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref PeterUser
+
+  # ── IAM Managed Policy: StorageAccessPolicy ──
+  # Grants full S3 access to all buckets and objects.
+  # To restrict to a specific bucket (e.g. myapp.techschool.com) replace the
+  # Resource list with:
+  #   - "arn:aws:s3:::myapp.techschool.com"
+  #   - "arn:aws:s3:::myapp.techschool.com/*"
+  StorageAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: StorageAccessPolicy
+      Description: "Provides full access to all Amazon S3 buckets and objects."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: S3FullAccess
+            Effect: Allow
+            Action: "s3:*"
+            Resource:
+              - "arn:aws:s3:::*"       # bucket-level actions
+              - "arn:aws:s3:::*/*"     # object-level actions
+
+  # ── IAM Role: SampleAppRole ──────────────────
+  # Trust policy allows EC2 instances to assume this role.
+  # To allow Lambda to assume it instead, change the Service to:
+  #   lambda.amazonaws.com
+  SampleAppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SampleAppRole
+      Description: "Role assumed by EC2 instances to access S3 via StorageAccessPolicy."
+      ManagedPolicyArns:
+        - !Ref StorageAccessPolicy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowEC2ToAssumeRole
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: "sts:AssumeRole"
+
+# ─────────────────────────────────────────────
+#  Outputs
+# ─────────────────────────────────────────────
+Outputs:
+
+  EC2AdminsGroupName:
+    Description: IAM Group for EC2 administrators
+    Value: !Ref EC2AdminsGroup
+
+  PeterUserName:
+    Description: IAM User created for this assessment
+    Value: !Ref PeterUser
+
+  PeterAccessKeyId:
+    Description: Access Key ID for IAM User Peter
+    Value: !Ref PeterAccessKey
+
+  PeterSecretAccessKey:
+    Description: >
+      Secret Access Key for IAM User Peter.
+      IMPORTANT: This value is shown only once. Copy and store it securely.
+    Value: !GetAtt PeterAccessKey.SecretAccessKey
+
+  StorageAccessPolicyArn:
+    Description: ARN of the StorageAccessPolicy managed policy
+    Value: !Ref StorageAccessPolicy
+
+  SampleAppRoleArn:
+    Description: ARN of the SampleAppRole IAM Role
+    Value: !GetAtt SampleAppRole.Arn
