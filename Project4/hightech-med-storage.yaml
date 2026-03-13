@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  HighTech Medical - Storage Resources
+  Project 4: Configure Storage Solutions
+  Creates: EBS volume + ebs-test EC2, EFS filesystem + efs-test EC2
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-0535c1f88ffcd21b4
+    Description: VPC to deploy resources into (default VPC)
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-066da30b3133e9bee
+    Description: Subnet to deploy EC2 instances into
+
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Amazon Linux 2023 AMI (auto-resolved from SSM)
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: EC2 instance type (t2.micro is free tier eligible)
+
+Resources:
+
+  # ──────────────────────────────────────────────
+  # Security Group for EC2 instances
+  # SSH port 22 only — specific port, NOT all traffic (required for Mastery)
+  # ──────────────────────────────────────────────
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hightechmed-storage-sg
+      GroupDescription: Allow SSH access on port 22 only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access on specific port 22 only
+      Tags:
+        - Key: Name
+          Value: hightechmed-storage-sg
+
+  # ──────────────────────────────────────────────
+  # Security Group for EFS
+  # NFS port 2049 only — from EC2 security group
+  # ──────────────────────────────────────────────
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hightechmed-efs-sg
+      GroupDescription: Allow NFS access on port 2049 from EC2 instances only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+          Description: NFS access on specific port 2049 from EC2 security group only
+      Tags:
+        - Key: Name
+          Value: hightechmed-efs-sg
+
+  # ──────────────────────────────────────────────
+  # EBS Volume: hightechvolume
+  # Will be attached to ebs-test as a secondary drive
+  # ──────────────────────────────────────────────
+  HighTechVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1d
+      Size: 8
+      VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: hightechvolume
+
+  # ──────────────────────────────────────────────
+  # EC2 Instance: ebs-test
+  # Uses hightechvolume as a secondary storage drive
+  # ──────────────────────────────────────────────
+  EBSTestInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: ebs-test
+
+  # Attach the EBS volume to ebs-test as a secondary drive (/dev/xvdf)
+  EBSVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref EBSTestInstance
+      VolumeId: !Ref HighTechVolume
+      Device: /dev/xvdf
+
+  # ──────────────────────────────────────────────
+  # EFS File System: shared-api-files
+  # ──────────────────────────────────────────────
+  SharedApiFilesEFS:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      FileSystemTags:
+        - Key: Name
+          Value: shared-api-files
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      Encrypted: false
+
+  # EFS Mount Target in the subnet
+  EFSMountTarget:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref SharedApiFilesEFS
+      SubnetId: !Ref SubnetId
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  # ──────────────────────────────────────────────
+  # EC2 Instance: efs-test
+  # Mounts shared-api-files EFS at /api-storage/shared-api-files
+  # ──────────────────────────────────────────────
+  EFSTestInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: EFSMountTarget
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: efs-test
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum install -y amazon-efs-utils
+          mkdir -p /api-storage/shared-api-files
+          mount -t efs ${SharedApiFilesEFS}:/ /api-storage/shared-api-files
+          echo "${SharedApiFilesEFS}:/ /api-storage/shared-api-files efs defaults,_netdev 0 0" >> /etc/fstab
+
+Outputs:
+
+  EBSVolumeId:
+    Description: ID of the EBS volume hightechvolume
+    Value: !Ref HighTechVolume
+
+  EBSTestInstanceId:
+    Description: ID of the ebs-test EC2 instance
+    Value: !Ref EBSTestInstance
+
+  EFSFileSystemId:
+    Description: ID of the shared-api-files EFS file system
+    Value: !Ref SharedApiFilesEFS
+
+  EFSTestInstanceId:
+    Description: ID of the efs-test EC2 instance
+    Value: !Ref EFSTestInstance
+
+  EFSMountPath:
+    Description: Path where EFS is mounted on efs-test
+    Value: /api-storage/shared-api-files

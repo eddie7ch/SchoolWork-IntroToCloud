@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  HighTech Medical - IAM Resources
+  Project 1: Implement Permission Management using IAM
+  Creates: EC2Admins group, IAM User Peter, StorageAccessPolicy, SampleAppRole
+
+Parameters:
+  PeterInitialPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: >
+      Temporary password for IAM User "Peter".
+      Must be at least 8 characters and meet AWS password policy requirements.
+      Peter will be required to reset this on first login.
+    ConstraintDescription: Must be at least 8 characters.
+
+Resources:
+
+  # ──────────────────────────────────────────────
+  # IAM Group: EC2Admins
+  # Attached managed policy: AmazonEC2FullAccess
+  # ──────────────────────────────────────────────
+  EC2AdminsGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: EC2Admins
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+
+  # ──────────────────────────────────────────────
+  # IAM User: Peter
+  # - Assigned to EC2Admins group
+  # - Login profile with temporary password (must reset on first login)
+  # NOTE: MFA and Access Keys must be configured manually in the AWS Console
+  # ──────────────────────────────────────────────
+  PeterUser:
+    Type: AWS::IAM::User
+    DependsOn: EC2AdminsGroup
+    Properties:
+      UserName: Peter
+      Groups:
+        - !Ref EC2AdminsGroup
+      LoginProfile:
+        Password: !Ref PeterInitialPassword
+        PasswordResetRequired: true
+
+  # ──────────────────────────────────────────────
+  # IAM Managed Policy: StorageAccessPolicy
+  # Provides full access to all S3 buckets
+  # ──────────────────────────────────────────────
+  StorageAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: StorageAccessPolicy
+      Description: Provides full access to all Amazon S3 buckets and objects
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: FullS3Access
+            Effect: Allow
+            Action:
+              - 's3:*'
+            Resource:
+              - 'arn:aws:s3:::*'
+              - 'arn:aws:s3:::*/*'
+
+  # ──────────────────────────────────────────────
+  # IAM Role: SampleAppRole
+  # - Trust policy allows EC2 service to assume this role
+  # - Attached policy: StorageAccessPolicy
+  # ──────────────────────────────────────────────
+  SampleAppRole:
+    Type: AWS::IAM::Role
+    DependsOn: StorageAccessPolicy
+    Properties:
+      RoleName: SampleAppRole
+      Description: Role for EC2 instances to access S3 storage
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEC2ToAssumeRole
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Ref StorageAccessPolicy
+
+Outputs:
+
+  EC2AdminsGroupName:
+    Description: Name of the EC2Admins IAM Group
+    Value: !Ref EC2AdminsGroup
+
+  PeterUserName:
+    Description: Name of the IAM User created
+    Value: !Ref PeterUser
+
+  PeterUserArn:
+    Description: ARN of IAM User Peter
+    Value: !GetAtt PeterUser.Arn
+
+  StorageAccessPolicyArn:
+    Description: ARN of the StorageAccessPolicy managed policy
+    Value: !Ref StorageAccessPolicy
+
+  SampleAppRoleArn:
+    Description: ARN of the SampleAppRole IAM Role
+    Value: !GetAtt SampleAppRole.Arn
+
+  ManualStepsRequired:
+    Description: Steps that must be completed manually in the AWS Console after deployment
+    Value: >
+      1. Configure MFA for IAM User Peter (Security Credentials tab).
+      2. Create Access Keys for IAM User Peter (Security Credentials tab).
+      3. Log in as Peter to validate access (required for Mastery level).

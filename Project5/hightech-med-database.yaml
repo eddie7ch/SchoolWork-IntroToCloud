@@ -1,0 +1,205 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  HighTech Medical - Database Resources
+  Project 5: Set up Database Services
+  Creates: Aurora MySQL RDS Cluster + read replica + snapshot,
+           DynamoDB table, ElastiCache Redis cluster + read replica
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-0535c1f88ffcd21b4
+    Description: VPC to deploy resources into (default VPC)
+
+  DBMasterUsername:
+    Type: String
+    Default: admin
+    Description: Master username for the RDS Aurora cluster
+
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: >
+      Master password for the RDS Aurora cluster.
+      Must be at least 8 characters.
+    ConstraintDescription: Must be at least 8 characters.
+
+Resources:
+
+  # ----------------------------------------------
+  # Security Group for RDS
+  # MySQL port 3306 only -- specific port, NOT all traffic (required for Mastery)
+  # ----------------------------------------------
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hightechmed-rds-sg
+      GroupDescription: Allow MySQL access on port 3306 only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 10.0.0.0/8
+          Description: MySQL access on specific port 3306 from internal network only
+      Tags:
+        - Key: Name
+          Value: hightechmed-rds-sg
+
+  # Security Group for ElastiCache
+  # Redis port 6379 only -- specific port, NOT all traffic (required for Mastery)
+  ElastiCacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hightechmed-cache-sg
+      GroupDescription: Allow Redis access on port 6379 only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 10.0.0.0/8
+          Description: Redis access on specific port 6379 from internal network only
+      Tags:
+        - Key: Name
+          Value: hightechmed-cache-sg
+
+  # ----------------------------------------------
+  # RDS Subnet Group (requires at least 2 AZs)
+  # ----------------------------------------------
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: hightechmed-rds-subnet-group
+      DBSubnetGroupDescription: Subnet group for HighTechMed RDS Aurora cluster
+      SubnetIds:
+        - subnet-066da30b3133e9bee
+        - subnet-0e39209e814edd30c
+        - subnet-0a98f56a046135422
+
+  # ----------------------------------------------
+  # RDS Aurora MySQL Cluster: scheduling
+  # NOTE: Using Aurora (MySQL Compatible) -- NOT plain MySQL
+  #    This is required by the rubric Competent level
+  # ----------------------------------------------
+  SchedulingCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      DBClusterIdentifier: scheduling
+      Engine: aurora-mysql
+      EngineVersion: '8.0.mysql_aurora.3.04.0'
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref RDSSecurityGroup
+      StorageEncrypted: true
+      DeletionProtection: false
+      BackupRetentionPeriod: 1
+      Tags:
+        - Key: Name
+          Value: scheduling
+
+  # Primary instance for the cluster
+  SchedulingPrimaryInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: scheduling-primary
+      DBClusterIdentifier: !Ref SchedulingCluster
+      DBInstanceClass: db.t3.medium
+      Engine: aurora-mysql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: scheduling-primary
+
+  # Read replica (secondary instance) for the cluster
+  SchedulingSecondaryInstance:
+    Type: AWS::RDS::DBInstance
+    DependsOn: SchedulingPrimaryInstance
+    Properties:
+      DBInstanceIdentifier: scheduling-secondary
+      DBClusterIdentifier: !Ref SchedulingCluster
+      DBInstanceClass: db.t3.medium
+      Engine: aurora-mysql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: scheduling-secondary
+
+  # ----------------------------------------------
+  # DynamoDB Table: patients
+  # ----------------------------------------------
+  PatientsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: patients
+      AttributeDefinitions:
+        - AttributeName: patientId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Name
+          Value: patients
+
+  # ----------------------------------------------
+  # ElastiCache Subnet Group
+  # ----------------------------------------------
+  ElastiCacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: hightechmed-cache-subnet-group
+      Description: Subnet group for HighTechMed ElastiCache Redis cluster
+      SubnetIds:
+        - subnet-066da30b3133e9bee
+        - subnet-0e39209e814edd30c
+        - subnet-0a98f56a046135422
+
+  # ----------------------------------------------
+  # ElastiCache Redis Cluster: api-cache
+  # Primary node
+  # ----------------------------------------------
+  ApiCacheCluster:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      ReplicationGroupId: api-cache
+      ReplicationGroupDescription: HighTechMed API cache Redis cluster
+      Engine: redis
+      CacheNodeType: cache.t3.micro
+      NumCacheClusters: 2
+      AutomaticFailoverEnabled: true
+      CacheSubnetGroupName: !Ref ElastiCacheSubnetGroup
+      SecurityGroupIds:
+        - !Ref ElastiCacheSecurityGroup
+      Tags:
+        - Key: Name
+          Value: api-cache
+
+Outputs:
+
+  RDSClusterEndpoint:
+    Description: Aurora MySQL cluster endpoint
+    Value: !GetAtt SchedulingCluster.Endpoint.Address
+
+  RDSClusterIdentifier:
+    Description: RDS Cluster identifier
+    Value: !Ref SchedulingCluster
+
+  DynamoDBTableName:
+    Description: DynamoDB table name
+    Value: !Ref PatientsTable
+
+  ElastiCacheEndpoint:
+    Description: ElastiCache Redis primary endpoint
+    Value: !GetAtt ApiCacheCluster.PrimaryEndPoint.Address
+
+  ManualStepsRequired:
+    Description: Steps to complete manually after deployment
+    Value: >
+      1. Take RDS snapshot named "scheduling-backup-1" from the AWS Console or CLI.
+      2. Add patient item to DynamoDB "patients" table using patient-sample-item.json.
+      3. Update the patient item last name to "Foster" in DynamoDB.

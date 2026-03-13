@@ -1,0 +1,35 @@
+{
+    "patientId": {
+        "S": "P001"
+    },
+    "firstName": {
+        "S": "John"
+    },
+    "lastName": {
+        "S": "Smith"
+    },
+    "dateOfBirth": {
+        "S": "1985-06-15"
+    },
+    "email": {
+        "S": "john.smith@example.com"
+    },
+    "phone": {
+        "S": "403-555-0123"
+    },
+    "address": {
+        "S": "123 Main Street, Calgary, AB, T2P 1J9"
+    },
+    "bloodType": {
+        "S": "O+"
+    },
+    "allergies": {
+        "SS": [
+            "Penicillin",
+            "Peanuts"
+        ]
+    },
+    "lastVisit": {
+        "S": "2026-01-20"
+    }
+}
