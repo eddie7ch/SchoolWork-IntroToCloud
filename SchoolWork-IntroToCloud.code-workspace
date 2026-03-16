@@ -19,6 +19,9 @@
         {
             "name": "Project5",
             "path": "Project5"
+        },
+        {
+            "path": "../../MLEbotics/hey-girl"
         }
     ],
     "settings": {}
