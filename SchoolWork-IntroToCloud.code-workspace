@@ -21,5 +21,28 @@
             "path": "Project5"
         }
     ],
-    "settings": {}
+    "settings": {
+        "files.exclude": {
+            "**/.git": true,
+            "**/.DS_Store": true,
+            "**/Thumbs.db": true
+        },
+        "search.exclude": {
+            "**/node_modules": true,
+            "**/dist": true,
+            "**/build": true
+        },
+        "files.watcherExclude": {
+            "**/node_modules/**": true,
+            "**/dist/**": true,
+            "**/build/**": true
+        }
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-vscode.powershell",
+            "esbenp.prettier-vscode",
+            "redhat.vscode-yaml"
+        ]
+    }
 }
