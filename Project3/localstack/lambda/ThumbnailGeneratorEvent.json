@@ -1,0 +1,7 @@
+{
+  "sourceBucket": "hightechmed-images",
+  "targetBucket": "hightechmed-thumbnails",
+  "imageKey": "xray1.png",
+  "width": 150,
+  "height": 150
+}
