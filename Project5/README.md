@@ -17,8 +17,8 @@ Database Resources
 │       └── Snapshot:           scheduling-backup-1  ← taken manually after deploy
 │
 ├── DynamoDB Table: patients
-│       ├── Item added:         patient-sample-item.json
-│       └── Item updated:       lastName → "Foster"
+│       ├── Item added:         patient-sample-item.json  (FHIR R5 Patient resource)
+│       └── Item updated:       name[0].family → "Foster"  (FHIR last name field)
 │
 └── ElastiCache Redis: api-cache
         ├── Primary node
@@ -80,11 +80,14 @@ aws dynamodb put-item `
 
 ### Step 4 — Update patient last name to "Foster"
 
+The patient's last name is stored inside the FHIR `name` array (`name[0].family`).
+
 ```powershell
 aws dynamodb update-item `
   --table-name patients `
   --key '{"patientId": {"S": "P001"}}' `
-  --update-expression "SET lastName = :newName" `
+  --update-expression "SET #nm[0].#fam = :newName" `
+  --expression-attribute-names '{"#nm": "name", "#fam": "family"}' `
   --expression-attribute-values '{":newName": {"S": "Foster"}}'
 ```
 
@@ -105,7 +108,7 @@ aws cloudformation delete-stack --stack-name hightech-med-database
 - [ ] Snapshot **"scheduling-backup-1"** in Snapshots section
 - [ ] DynamoDB table **"patients"** in Tables section
 - [ ] Patient item visible in the table (Items tab)
-- [ ] Patient item updated — lastName shows **"Foster"**
+- [ ] Patient item updated — `name[0].family` (FHIR last name) shows **"Foster"**
 - [ ] ElastiCache cluster **"api-cache"** in Redis clusters section
 - [ ] Read replica node **"secondary"** visible in the cluster
 - [ ] *(Mastery)* Show Security Groups — **specific ports only** (3306, 6379) — NOT all traffic

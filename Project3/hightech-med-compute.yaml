@@ -1,0 +1,370 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  HighTech Medical — Compute Resources
+  Project 3: Configure Compute Services while Demonstrating Autonomy
+  Creates: EC2 instance (SSH, public subnet, port 22 only),
+           Lambda function (Hello World, Node.js 20),
+           Elastic Beanstalk application + production environment,
+           ECS Fargate cluster + task definition + service
+
+Parameters:
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-0535c1f88ffcd21b4
+    Description: VPC to deploy resources into (default VPC)
+
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-066da30b3133e9bee
+    Description: >
+      Public subnet to launch EC2 and ECS Fargate tasks.
+      Must have MapPublicIpOnLaunch = true so instances get public IPs.
+      Default is us-east-1d in the default VPC.
+
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Amazon Linux 2023 AMI (auto-resolved from SSM Parameter Store)
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: EC2 instance type (t2.micro is free tier eligible)
+
+  EBSolutionStack:
+    Type: String
+    Default: "64bit Amazon Linux 2023 v6.2.0 running Node.js 20"
+    Description: >
+      Elastic Beanstalk platform solution stack name.
+      IMPORTANT: Verify the current name before deploying — stack names change with patches.
+      Run: aws elasticbeanstalk list-available-solution-stacks --query "SolutionStacks[?contains(@,'Node.js 20')]" --output text
+
+Resources:
+
+  # ──────────────────────────────────────────────
+  # 1. VIRTUAL MACHINE — EC2 Instance
+  #    Mastery: port 22 ONLY (not all traffic), launched in public subnet
+  # ──────────────────────────────────────────────
+
+  EC2KeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: hightech-med-keypair
+      Tags:
+        - Key: Name
+          Value: hightech-med-keypair
+
+  # Mastery: specific port 22 ONLY — NOT "All traffic"
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hightech-med-ec2-sg
+      GroupDescription: Allow SSH on port 22 ONLY — specific port, NOT all traffic (Mastery)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access on port 22 only — NOT all traffic
+      Tags:
+        - Key: Name
+          Value: hightech-med-ec2-sg
+
+  # Mastery: launched in a public subnet (PublicSubnetId has MapPublicIpOnLaunch=true)
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref EC2KeyPair
+      SubnetId: !Ref PublicSubnetId
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: hightech-med-ec2
+
+  # ──────────────────────────────────────────────
+  # 2. SERVERLESS FUNCTION — Lambda
+  #    Competent: function with sample code + test event + execute
+  #    NOTE: Test event must be created manually in the AWS Console
+  # ──────────────────────────────────────────────
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hightech-med-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: Name
+          Value: hightech-med-lambda-role
+
+  HelloWorldFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: HelloWorldFunction
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Event received:', JSON.stringify(event, null, 2));
+            return {
+              statusCode: 200,
+              body: JSON.stringify({
+                message: 'Hello from HighTech Medical Lambda!',
+                input: event
+              })
+            };
+          };
+      Description: HighTech Medical Hello World Lambda function — Project 3
+      Tags:
+        - Key: Name
+          Value: HelloWorldFunction
+
+  # ──────────────────────────────────────────────
+  # 3. PaaS WEB APPLICATION — Elastic Beanstalk
+  #    Competent: deploy V1, create test env with V2, promote test to production
+  #    CF creates: IAM roles, EB application, production environment (V1 = sample app)
+  #    Manual after deploy: upload V2 bundle, create "test" environment, swap URLs
+  # ──────────────────────────────────────────────
+
+  EBServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hightech-med-eb-service-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: elasticbeanstalk.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': elasticbeanstalk
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkEnhancedHealth
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy
+      Tags:
+        - Key: Name
+          Value: hightech-med-eb-service-role
+
+  EBInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hightech-med-eb-instance-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier
+      Tags:
+        - Key: Name
+          Value: hightech-med-eb-instance-role
+
+  EBInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: hightech-med-eb-instance-profile
+      Roles:
+        - !Ref EBInstanceRole
+
+  EBApplication:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: hightech-med-web
+      Description: HighTech Medical web application (Project 3)
+
+  # Production environment — deploys the EB sample app (this is V1)
+  # DependsOn ensures the instance profile exists before the environment references it
+  EBProductionEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    DependsOn: EBInstanceProfile
+    Properties:
+      ApplicationName: !Ref EBApplication
+      EnvironmentName: production
+      SolutionStackName: !Ref EBSolutionStack
+      OptionSettings:
+        # Single instance (no load balancer) — cheapest for school demo
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: EnvironmentType
+          Value: SingleInstance
+        # Service role for EB enhanced health monitoring
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: ServiceRole
+          Value: !Ref EBServiceRole
+        # Instance profile so the EC2 can call AWS APIs
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: IamInstanceProfile
+          Value: !Ref EBInstanceProfile
+        # Free tier eligible instance type
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: InstanceType
+          Value: t2.micro
+        # VPC placement
+        - Namespace: aws:ec2:vpc
+          OptionName: VPCId
+          Value: !Ref VpcId
+        # Public subnet so the instance gets a public DNS and is reachable via HTTP
+        - Namespace: aws:ec2:vpc
+          OptionName: Subnets
+          Value: !Ref PublicSubnetId
+        - Namespace: aws:ec2:vpc
+          OptionName: AssociatePublicIpAddress
+          Value: 'true'
+
+  # ──────────────────────────────────────────────
+  # 4. CONTAINER ORCHESTRATION — ECS Fargate
+  #    Competent: Fargate cluster + task definition + service
+  # ──────────────────────────────────────────────
+
+  # Port 80 only for the Fargate task (nginx)
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: hightech-med-ecs-sg
+      GroupDescription: Allow HTTP on port 80 only for ECS Fargate tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP access on port 80 only
+      Tags:
+        - Key: Name
+          Value: hightech-med-ecs-sg
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: hightech-med-cluster
+      Tags:
+        - Key: Name
+          Value: hightech-med-cluster
+
+  # Execution role: allows ECS to pull images and write logs on behalf of the task
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hightech-med-ecs-task-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Name
+          Value: hightech-med-ecs-task-execution-role
+
+  # Task definition: nginx container, 0.25 vCPU / 512 MB, Fargate
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: hightech-med-api
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: hightech-med-api
+          Image: public.ecr.aws/nginx/nginx:latest
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+
+  # Service: runs 1 Fargate task in the public subnet with a public IP
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: hightech-med-api-service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnetId
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+
+Outputs:
+
+  # ── EC2 ──────────────────────────────────────
+  EC2InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref EC2Instance
+
+  EC2PublicDns:
+    Description: >
+      EC2 public DNS — use for SSH:
+      ssh -i hightech-med-keypair.pem ec2-user@<this-value>
+    Value: !GetAtt EC2Instance.PublicDnsName
+
+  EC2KeyPairName:
+    Description: >
+      Key pair name. Download the private key from:
+      Systems Manager > Parameter Store > /ec2/keypair/<keypair-id>
+      Click "Show decrypted value" and save as hightech-med-keypair.pem
+    Value: !Ref EC2KeyPair
+
+  EC2SecurityGroupId:
+    Description: EC2 security group (port 22 only — shown for Mastery)
+    Value: !Ref EC2SecurityGroup
+
+  # ── Lambda ───────────────────────────────────
+  LambdaFunctionName:
+    Description: Lambda function name — open in console to create test event
+    Value: !Ref HelloWorldFunction
+
+  # ── Elastic Beanstalk ─────────────────────────
+  EBApplicationName:
+    Description: Elastic Beanstalk application name
+    Value: !Ref EBApplication
+
+  EBProductionUrl:
+    Description: Elastic Beanstalk production environment URL (V1 sample app)
+    Value: !GetAtt EBProductionEnvironment.EndpointURL
+
+  # ── ECS ──────────────────────────────────────
+  ECSClusterName:
+    Description: ECS Fargate cluster name
+    Value: !Ref ECSCluster
+
+  ECSTaskDefinitionFamily:
+    Description: ECS task definition family name
+    Value: hightech-med-api
+
+  ManualStepsRequired:
+    Description: Steps to complete manually after deployment
+    Value: >
+      1. EC2 — Download private key: SSM > Parameter Store > /ec2/keypair/<id> > Show Decrypted Value.
+         Save as hightech-med-keypair.pem. Then: ssh -i hightech-med-keypair.pem ec2-user@<EC2PublicDns>.
+      2. Lambda — Open HelloWorldFunction in console > Test tab > Create test event > Execute.
+      3. EB V2 — Zip app-v2/ into app-v2.zip. In EB console: Application versions > Upload > deploy to new "test" environment > swap URLs.
+      4. ECS — Verify service "hightech-med-api-service" shows 1/1 running tasks.

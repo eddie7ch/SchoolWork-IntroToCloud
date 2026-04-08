@@ -2,34 +2,95 @@
     "patientId": {
         "S": "P001"
     },
-    "firstName": {
-        "S": "John"
+    "resourceType": {
+        "S": "Patient"
     },
-    "lastName": {
-        "S": "Smith"
-    },
-    "dateOfBirth": {
-        "S": "1985-06-15"
-    },
-    "email": {
-        "S": "john.smith@example.com"
-    },
-    "phone": {
-        "S": "403-555-0123"
-    },
-    "address": {
-        "S": "123 Main Street, Calgary, AB, T2P 1J9"
-    },
-    "bloodType": {
-        "S": "O+"
-    },
-    "allergies": {
-        "SS": [
-            "Penicillin",
-            "Peanuts"
+    "identifier": {
+        "L": [
+            {
+                "M": {
+                    "use":   { "S": "official" },
+                    "system": { "S": "urn:oid:2.16.840.1.113883.4.1" },
+                    "value": { "S": "P001" }
+                }
+            }
         ]
     },
-    "lastVisit": {
-        "S": "2026-01-20"
+    "active": {
+        "BOOL": true
+    },
+    "name": {
+        "L": [
+            {
+                "M": {
+                    "use":    { "S": "official" },
+                    "family": { "S": "Smith" },
+                    "given":  { "L": [ { "S": "John" } ] }
+                }
+            }
+        ]
+    },
+    "telecom": {
+        "L": [
+            {
+                "M": {
+                    "system": { "S": "phone" },
+                    "value":  { "S": "403-555-0123" },
+                    "use":    { "S": "home" }
+                }
+            },
+            {
+                "M": {
+                    "system": { "S": "email" },
+                    "value":  { "S": "john.smith@example.com" },
+                    "use":    { "S": "home" }
+                }
+            }
+        ]
+    },
+    "gender": {
+        "S": "male"
+    },
+    "birthDate": {
+        "S": "1985-06-15"
+    },
+    "address": {
+        "L": [
+            {
+                "M": {
+                    "use":        { "S": "home" },
+                    "type":       { "S": "physical" },
+                    "line":       { "L": [ { "S": "123 Main Street" } ] },
+                    "city":       { "S": "Calgary" },
+                    "state":      { "S": "AB" },
+                    "postalCode": { "S": "T2P 1J9" },
+                    "country":    { "S": "CA" }
+                }
+            }
+        ]
+    },
+    "communication": {
+        "L": [
+            {
+                "M": {
+                    "language": {
+                        "M": {
+                            "coding": {
+                                "L": [
+                                    {
+                                        "M": {
+                                            "system":  { "S": "urn:ietf:bcp:47" },
+                                            "code":    { "S": "en-CA" },
+                                            "display": { "S": "English (Canada)" }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "preferred": { "BOOL": true }
+                }
+            }
+        ]
     }
 }
